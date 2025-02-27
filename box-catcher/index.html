@@ -45,9 +45,22 @@
             font-weight: bold;
         }
         
+        .distance-indicator {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background-color: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 10px 15px;
+            border-radius: 10px;
+            font-size: 16px;
+            text-align: center;
+        }
+        
         .start-button {
             position: absolute;
-            bottom: 50px;
+            bottom: 90px;
             left: 50%;
             transform: translateX(-50%);
             background-color: rgba(0, 100, 255, 0.9);
@@ -88,7 +101,7 @@
         
         .instructions {
             position: absolute;
-            bottom: 120px;
+            bottom: 160px;
             left: 50%;
             transform: translateX(-50%);
             background-color: rgba(0, 0, 0, 0.7);
@@ -133,10 +146,18 @@
                     this.score = 0;
                     this.timeRemaining = 60;
                     this.gameRunning = false;
-                    this.maxBoxes = 10;
+                    this.maxBoxes = 8;
+                    this.closestBoxDistance = 999;
                     
                     // Track camera position for collision detection
                     this.cameraEl = this.el.sceneEl.camera.el;
+                    
+                    // Create distance indicator element
+                    this.distanceIndicator = document.createElement('div');
+                    this.distanceIndicator.className = 'distance-indicator';
+                    this.distanceIndicator.id = 'distanceIndicator';
+                    this.distanceIndicator.textContent = 'Find boxes around you!';
+                    document.querySelector('.ui-overlay').appendChild(this.distanceIndicator);
                     
                     // Bind tick function
                     this.tick = AFRAME.utils.throttleTick(this.tick, 100, this);
@@ -152,6 +173,7 @@
                     // Hide UI elements
                     document.getElementById('startButton').style.display = 'none';
                     document.getElementById('instructions').style.display = 'none';
+                    document.getElementById('distanceIndicator').style.display = 'block';
                     
                     // Clear any existing boxes
                     this.clearBoxes();
@@ -196,30 +218,38 @@
                     const boxId = 'box-' + Date.now() + '-' + Math.floor(Math.random() * 1000);
                     box.setAttribute('id', boxId);
                     
-                    // Get camera position and orientation
+                    // Get camera position and direction
                     const camPosition = this.cameraEl.object3D.position.clone();
                     const camRotation = this.cameraEl.object3D.rotation.clone();
                     
                     // Create a direction vector based on camera orientation
+                    // This gives the forward direction the camera is facing
                     const direction = new THREE.Vector3(0, 0, -1);
                     direction.applyQuaternion(this.cameraEl.object3D.quaternion);
                     
-                    // Generate position in a sphere around the camera
-                    // But biased towards the front
-                    const distance = 1.5 + Math.random() * 1.5; // 1.5-3 meters away
-                    const angle = (Math.random() * 2 - 1) * Math.PI * 0.5; // -90 to 90 degrees
-                    const height = (Math.random() * 2 - 1) * 0.5; // -0.5 to 0.5 meters vertically
+                    // Generate position much closer to the camera (0.5-1.5 meters away)
+                    // This will make it easier to see the distance effect
+                    const distance = 0.5 + Math.random() * 1.0; 
+                    const angleHorizontal = (Math.random() * 2 - 1) * Math.PI * 0.7; // -126 to 126 degrees horizontal spread
+                    const angleVertical = (Math.random() * 2 - 1) * Math.PI * 0.3; // Less vertical spread
                     
-                    // Calculate the box position
-                    const forward = direction.clone().multiplyScalar(distance * Math.cos(angle));
+                    // Create directional vectors
+                    const forward = direction.clone().multiplyScalar(distance * Math.cos(angleHorizontal) * Math.cos(angleVertical));
+                    
+                    // Calculate the right vector (perpendicular to forward and up)
                     const right = new THREE.Vector3().crossVectors(direction, new THREE.Vector3(0, 1, 0))
-                                                   .normalize()
-                                                   .multiplyScalar(distance * Math.sin(angle));
+                                                     .normalize()
+                                                     .multiplyScalar(distance * Math.sin(angleHorizontal));
                     
+                    // Calculate the up vector for vertical positioning
+                    const up = new THREE.Vector3(0, 1, 0)
+                                         .multiplyScalar(distance * Math.sin(angleVertical));
+                    
+                    // Calculate final position
                     const boxPos = new THREE.Vector3()
-                                  .addVectors(camPosition, forward)
-                                  .add(right);
-                    boxPos.y += height;
+                                    .addVectors(camPosition, forward)
+                                    .add(right)
+                                    .add(up);
                     
                     // Set box properties
                     box.setAttribute('position', boxPos);
@@ -228,30 +258,32 @@
                         y: Math.random() * 360,
                         z: Math.random() * 360
                     });
-                    box.setAttribute('scale', '0.15 0.15 0.15'); // 15cm box
                     
-                    // Random color
-                    const colors = ['red', 'blue', 'green', 'yellow', 'purple'];
+                    // Make boxes a bit bigger for easier visibility
+                    box.setAttribute('scale', '0.2 0.2 0.2'); // 20cm box
+                    
+                    // Random color with more vibrant options
+                    const colors = ['#FF0000', '#00FF00', '#0088FF', '#FFFF00', '#FF00FF', '#00FFFF'];
                     const colorIndex = Math.floor(Math.random() * colors.length);
                     box.setAttribute('color', colors[colorIndex]);
                     
-                    // Make it look nicer
-                    box.setAttribute('material', 'metalness: 0.7; roughness: 0.3');
+                    // Make it look nicer - more shiny
+                    box.setAttribute('material', 'metalness: 0.8; roughness: 0.2; emissive: ' + colors[colorIndex] + '; emissiveIntensity: 0.2');
                     
-                    // Add animation
+                    // Add animation - rotate faster for more visibility
                     box.setAttribute('animation', {
                         property: 'rotation',
                         to: { x: Math.random() * 360, y: Math.random() * 360, z: Math.random() * 360 },
-                        dur: 5000,
+                        dur: 3000, // Faster rotation
                         loop: true,
                         easing: 'linear'
                     });
                     
-                    // Small floating movement
+                    // Small floating movement - more pronounced
                     box.setAttribute('animation__position', {
                         property: 'position',
-                        to: `${boxPos.x + (Math.random() - 0.5) * 0.3} ${boxPos.y + (Math.random() - 0.5) * 0.3} ${boxPos.z + (Math.random() - 0.5) * 0.3}`,
-                        dur: 3000,
+                        to: `${boxPos.x + (Math.random() - 0.5) * 0.4} ${boxPos.y + (Math.random() - 0.5) * 0.4} ${boxPos.z + (Math.random() - 0.5) * 0.4}`,
+                        dur: 2000,
                         loop: true,
                         dir: 'alternate',
                         easing: 'easeInOutSine'
@@ -264,13 +296,16 @@
                     this.boxes.push({
                         id: boxId,
                         element: box,
-                        position: boxPos
+                        position: boxPos,
+                        initialDistance: distance
                     });
                 },
                 
                 checkCollisions: function() {
                     // Get current camera position
                     const camPosition = this.cameraEl.object3D.position.clone();
+                    let closestDistance = 999;
+                    let closestBoxId = null;
                     
                     // Loop through all boxes
                     for (let i = this.boxes.length - 1; i >= 0; i--) {
@@ -284,10 +319,51 @@
                         // Calculate distance to camera
                         const distance = camPosition.distanceTo(boxPosition);
                         
+                        // Track closest box for indicator
+                        if (distance < closestDistance) {
+                            closestDistance = distance;
+                            closestBoxId = box.id;
+                        }
+                        
                         // If box is close enough to camera, collect it
-                        if (distance < 0.5) { // 50cm collision radius
+                        // Using a smaller radius (30cm) for more precise collection
+                        if (distance < 0.3) { 
                             this.collectBox(box, i);
                         }
+                        
+                        // Update box color based on distance
+                        // This provides a visual cue about distance
+                        const opacity = Math.min(1, Math.max(0.3, 1 - distance / 2));
+                        const scale = Math.min(0.3, Math.max(0.15, 0.2 + (0.3 - distance) * 0.5));
+                        
+                        // Apply visual distance cues
+                        boxEl.setAttribute('material', 'opacity', opacity);
+                        boxEl.setAttribute('scale', `${scale} ${scale} ${scale}`);
+                    }
+                    
+                    // Update the closest distance for the indicator
+                    this.closestBoxDistance = closestDistance;
+                    this.updateDistanceIndicator();
+                },
+                
+                updateDistanceIndicator: function() {
+                    const indicator = document.getElementById('distanceIndicator');
+                    
+                    if (this.closestBoxDistance < 0.3) {
+                        indicator.textContent = 'Box within reach! Grab it!';
+                        indicator.style.backgroundColor = 'rgba(0, 255, 0, 0.7)';
+                    } else if (this.closestBoxDistance < 0.6) {
+                        indicator.textContent = 'Very close! Keep going!';
+                        indicator.style.backgroundColor = 'rgba(120, 255, 0, 0.7)';
+                    } else if (this.closestBoxDistance < 1.0) {
+                        indicator.textContent = 'Getting closer...';
+                        indicator.style.backgroundColor = 'rgba(255, 255, 0, 0.7)';
+                    } else if (this.closestBoxDistance < 1.5) {
+                        indicator.textContent = 'Box nearby. Move closer!';
+                        indicator.style.backgroundColor = 'rgba(255, 150, 0, 0.7)';
+                    } else {
+                        indicator.textContent = 'Look around for boxes!';
+                        indicator.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
                     }
                 },
                 
@@ -343,6 +419,9 @@
                     clearInterval(this.gameTimer);
                     clearInterval(this.boxSpawner);
                     
+                    // Hide distance indicator
+                    document.getElementById('distanceIndicator').style.display = 'none';
+                    
                     // Update final score and show game over panel
                     document.getElementById('finalScore').textContent = `Final Score: ${this.score}`;
                     document.getElementById('gameOverPanel').style.display = 'block';
@@ -368,7 +447,7 @@
     <div class="ui-overlay">
         <div class="score-display" id="score">Score: 0</div>
         <div class="timer-display" id="timer">Time: 60</div>
-        <div class="instructions" id="instructions">Move your phone to find and collect the colored boxes floating in space around you!</div>
+        <div class="instructions" id="instructions">Move your phone to find boxes! Walk closer to collect them when they're within reach.</div>
         <button class="start-button" id="startButton">Start Game</button>
         
         <div class="game-over" id="gameOverPanel">
