@@ -7,7 +7,7 @@
     
     <!-- A-Frame and AR.js libraries -->
     <script src="https://aframe.io/releases/1.3.0/aframe.min.js"></script>
-    <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar.js"></script>
+    <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar-nft.js"></script>
     
     <style>
         .ui-overlay {
@@ -106,22 +106,269 @@
     <!-- A-Frame Scene -->
     <a-scene
         embedded
-        arjs="sourceType: webcam; debugUIEnabled: false; detectionMode: mono_and_matrix;"
+        arjs="trackingMethod: best; sourceType: webcam; debugUIEnabled: false;"
         renderer="logarithmicDepthBuffer: true; precision: medium;"
         vr-mode-ui="enabled: false">
         
-        <!-- Camera with cursor -->
-        <a-entity camera></a-entity>
+        <!-- Custom A-Frame Component for Box Catcher Game -->
+        <script>
+            AFRAME.registerComponent('box-catcher-game', {
+                init: function() {
+                    // Keep track of the boxes
+                    this.boxes = [];
+                    this.gameContainer = document.createElement('a-entity');
+                    this.el.sceneEl.appendChild(this.gameContainer);
+                    
+                    // Setup event handling for button clicks
+                    const startButton = document.getElementById('startButton');
+                    startButton.addEventListener('click', () => this.startGame());
+                    
+                    const playAgainBtn = document.getElementById('playAgainBtn');
+                    playAgainBtn.addEventListener('click', () => {
+                        document.getElementById('gameOverPanel').style.display = 'none';
+                        this.startGame();
+                    });
+                    
+                    // Initialize game state
+                    this.score = 0;
+                    this.timeRemaining = 60;
+                    this.gameRunning = false;
+                    this.maxBoxes = 10;
+                    
+                    // Track camera position for collision detection
+                    this.cameraEl = this.el.sceneEl.camera.el;
+                    
+                    // Bind tick function
+                    this.tick = AFRAME.utils.throttleTick(this.tick, 100, this);
+                },
+                
+                startGame: function() {
+                    // Reset game state
+                    this.score = 0;
+                    this.timeRemaining = 60;
+                    this.gameRunning = true;
+                    this.updateUI();
+                    
+                    // Hide UI elements
+                    document.getElementById('startButton').style.display = 'none';
+                    document.getElementById('instructions').style.display = 'none';
+                    
+                    // Clear any existing boxes
+                    this.clearBoxes();
+                    
+                    // Spawn initial boxes
+                    for (let i = 0; i < 5; i++) {
+                        this.spawnBox();
+                    }
+                    
+                    // Start game timer
+                    if (this.gameTimer) clearInterval(this.gameTimer);
+                    this.gameTimer = setInterval(() => {
+                        this.timeRemaining--;
+                        this.updateUI();
+                        
+                        if (this.timeRemaining <= 0) {
+                            this.endGame();
+                        }
+                    }, 1000);
+                    
+                    // Start box spawner
+                    if (this.boxSpawner) clearInterval(this.boxSpawner);
+                    this.boxSpawner = setInterval(() => {
+                        if (this.boxes.length < this.maxBoxes) {
+                            this.spawnBox();
+                        }
+                    }, 2000);
+                },
+                
+                tick: function() {
+                    // Check for collisions
+                    if (this.gameRunning && this.boxes.length > 0) {
+                        this.checkCollisions();
+                    }
+                },
+                
+                spawnBox: function() {
+                    if (!this.gameRunning) return;
+                    
+                    // Create a box entity
+                    const box = document.createElement('a-box');
+                    const boxId = 'box-' + Date.now() + '-' + Math.floor(Math.random() * 1000);
+                    box.setAttribute('id', boxId);
+                    
+                    // Get camera position and orientation
+                    const camPosition = this.cameraEl.object3D.position.clone();
+                    const camRotation = this.cameraEl.object3D.rotation.clone();
+                    
+                    // Create a direction vector based on camera orientation
+                    const direction = new THREE.Vector3(0, 0, -1);
+                    direction.applyQuaternion(this.cameraEl.object3D.quaternion);
+                    
+                    // Generate position in a sphere around the camera
+                    // But biased towards the front
+                    const distance = 1.5 + Math.random() * 1.5; // 1.5-3 meters away
+                    const angle = (Math.random() * 2 - 1) * Math.PI * 0.5; // -90 to 90 degrees
+                    const height = (Math.random() * 2 - 1) * 0.5; // -0.5 to 0.5 meters vertically
+                    
+                    // Calculate the box position
+                    const forward = direction.clone().multiplyScalar(distance * Math.cos(angle));
+                    const right = new THREE.Vector3().crossVectors(direction, new THREE.Vector3(0, 1, 0))
+                                                   .normalize()
+                                                   .multiplyScalar(distance * Math.sin(angle));
+                    
+                    const boxPos = new THREE.Vector3()
+                                  .addVectors(camPosition, forward)
+                                  .add(right);
+                    boxPos.y += height;
+                    
+                    // Set box properties
+                    box.setAttribute('position', boxPos);
+                    box.setAttribute('rotation', {
+                        x: Math.random() * 360,
+                        y: Math.random() * 360,
+                        z: Math.random() * 360
+                    });
+                    box.setAttribute('scale', '0.15 0.15 0.15'); // 15cm box
+                    
+                    // Random color
+                    const colors = ['red', 'blue', 'green', 'yellow', 'purple'];
+                    const colorIndex = Math.floor(Math.random() * colors.length);
+                    box.setAttribute('color', colors[colorIndex]);
+                    
+                    // Make it look nicer
+                    box.setAttribute('material', 'metalness: 0.7; roughness: 0.3');
+                    
+                    // Add animation
+                    box.setAttribute('animation', {
+                        property: 'rotation',
+                        to: { x: Math.random() * 360, y: Math.random() * 360, z: Math.random() * 360 },
+                        dur: 5000,
+                        loop: true,
+                        easing: 'linear'
+                    });
+                    
+                    // Small floating movement
+                    box.setAttribute('animation__position', {
+                        property: 'position',
+                        to: `${boxPos.x + (Math.random() - 0.5) * 0.3} ${boxPos.y + (Math.random() - 0.5) * 0.3} ${boxPos.z + (Math.random() - 0.5) * 0.3}`,
+                        dur: 3000,
+                        loop: true,
+                        dir: 'alternate',
+                        easing: 'easeInOutSine'
+                    });
+                    
+                    // Add to scene
+                    this.gameContainer.appendChild(box);
+                    
+                    // Track the box
+                    this.boxes.push({
+                        id: boxId,
+                        element: box,
+                        position: boxPos
+                    });
+                },
+                
+                checkCollisions: function() {
+                    // Get current camera position
+                    const camPosition = this.cameraEl.object3D.position.clone();
+                    
+                    // Loop through all boxes
+                    for (let i = this.boxes.length - 1; i >= 0; i--) {
+                        const box = this.boxes[i];
+                        const boxEl = box.element;
+                        
+                        // Get current box position
+                        const boxPosition = new THREE.Vector3();
+                        boxEl.object3D.getWorldPosition(boxPosition);
+                        
+                        // Calculate distance to camera
+                        const distance = camPosition.distanceTo(boxPosition);
+                        
+                        // If box is close enough to camera, collect it
+                        if (distance < 0.5) { // 50cm collision radius
+                            this.collectBox(box, i);
+                        }
+                    }
+                },
+                
+                collectBox: function(box, index) {
+                    // Remove box from scene
+                    if (box.element.parentNode) {
+                        box.element.parentNode.removeChild(box.element);
+                    }
+                    
+                    // Remove from tracking array
+                    this.boxes.splice(index, 1);
+                    
+                    // Update score
+                    this.score++;
+                    this.updateUI();
+                    
+                    // Play sound effect
+                    this.playCollectSound();
+                },
+                
+                playCollectSound: function() {
+                    // Play a sound using Web Audio API
+                    try {
+                        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                        const oscillator = audioContext.createOscillator();
+                        const gainNode = audioContext.createGain();
+                        
+                        oscillator.type = 'sine';
+                        oscillator.frequency.value = 800; // Higher pitch for collection
+                        
+                        gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+                        gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.3);
+                        
+                        oscillator.connect(gainNode);
+                        gainNode.connect(audioContext.destination);
+                        
+                        oscillator.start();
+                        oscillator.stop(audioContext.currentTime + 0.3);
+                    } catch (e) {
+                        console.log("Audio not supported");
+                    }
+                },
+                
+                updateUI: function() {
+                    document.getElementById('score').textContent = `Score: ${this.score}`;
+                    document.getElementById('timer').textContent = `Time: ${this.timeRemaining}`;
+                },
+                
+                endGame: function() {
+                    this.gameRunning = false;
+                    
+                    // Stop timers
+                    clearInterval(this.gameTimer);
+                    clearInterval(this.boxSpawner);
+                    
+                    // Update final score and show game over panel
+                    document.getElementById('finalScore').textContent = `Final Score: ${this.score}`;
+                    document.getElementById('gameOverPanel').style.display = 'block';
+                },
+                
+                clearBoxes: function() {
+                    // Remove all existing boxes
+                    this.boxes.forEach(box => {
+                        if (box.element.parentNode) {
+                            box.element.parentNode.removeChild(box.element);
+                        }
+                    });
+                    this.boxes = [];
+                }
+            });
+        </script>
         
-        <!-- Game container for all boxes -->
-        <a-entity id="game-container"></a-entity>
+        <!-- Camera with game component attached -->
+        <a-entity camera look-controls box-catcher-game></a-entity>
     </a-scene>
     
     <!-- UI Overlay -->
     <div class="ui-overlay">
         <div class="score-display" id="score">Score: 0</div>
         <div class="timer-display" id="timer">Time: 60</div>
-        <div class="instructions" id="instructions">Move your phone to find and collect the colored boxes floating around you!</div>
+        <div class="instructions" id="instructions">Move your phone to find and collect the colored boxes floating in space around you!</div>
         <button class="start-button" id="startButton">Start Game</button>
         
         <div class="game-over" id="gameOverPanel">
@@ -130,243 +377,5 @@
             <button class="play-again-btn" id="playAgainBtn">Play Again</button>
         </div>
     </div>
-    
-    <!-- Game Logic -->
-    <script>
-        document.addEventListener('DOMContentLoaded', function() {
-            // Game elements
-            const startButton = document.getElementById('startButton');
-            const scoreDisplay = document.getElementById('score');
-            const timerDisplay = document.getElementById('timer');
-            const instructions = document.getElementById('instructions');
-            const gameOverPanel = document.getElementById('gameOverPanel');
-            const finalScoreDisplay = document.getElementById('finalScore');
-            const playAgainBtn = document.getElementById('playAgainBtn');
-            const gameContainer = document.getElementById('game-container');
-            const camera = document.querySelector('[camera]');
-            
-            // Game state
-            let score = 0;
-            let timeRemaining = 60;
-            let gameRunning = false;
-            let boxes = [];
-            let gameTimerId = null;
-            let boxSpawnerId = null;
-            let collisionCheckerId = null;
-            const maxBoxes = 10;
-            
-            // Start button event
-            startButton.addEventListener('click', function() {
-                startGame();
-                startButton.style.display = 'none';
-                instructions.style.display = 'none';
-            });
-            
-            // Play again button event
-            playAgainBtn.addEventListener('click', function() {
-                gameOverPanel.style.display = 'none';
-                startGame();
-            });
-            
-            // Game functions
-            function startGame() {
-                // Reset game state
-                score = 0;
-                timeRemaining = 60;
-                gameRunning = true;
-                updateUI();
-                
-                // Clear any existing boxes
-                clearBoxes();
-                
-                // Spawn initial boxes
-                for (let i = a = 0; i < 5; i++) {
-                    spawnBox();
-                }
-                
-                // Start game timer
-                gameTimerId = setInterval(function() {
-                    timeRemaining--;
-                    updateUI();
-                    
-                    if (timeRemaining <= 0) {
-                        endGame();
-                    }
-                }, 1000);
-                
-                // Start box spawner
-                boxSpawnerId = setInterval(function() {
-                    if (boxes.length < maxBoxes) {
-                        spawnBox();
-                    }
-                }, 2000);
-                
-                // Start collision detection
-                collisionCheckerId = setInterval(checkCollisions, 100);
-            }
-            
-            function spawnBox() {
-                if (!gameRunning) return;
-                
-                // Create a box entity
-                const box = document.createElement('a-box');
-                const boxId = 'box-' + Date.now() + '-' + Math.floor(Math.random() * 1000);
-                box.setAttribute('id', boxId);
-                
-                // Get camera position (this is tricky in AR.js as camera is fixed at origin)
-                // We'll place boxes relative to the camera's view
-                
-                // Generate random position around the camera
-                const randomOffset = {
-                    x: (Math.random() - 0.5) * 3,  // -1.5 to 1.5 meters horizontally
-                    y: (Math.random() - 0.5) * 2,   // -1 to 1 meters vertically 
-                    z: (Math.random() - 0.3) * -2 - 1  // 1 to 3 meters in front (negative z is forward)
-                };
-                
-                // Set box properties
-                box.setAttribute('position', randomOffset);
-                box.setAttribute('rotation', {
-                    x: Math.random() * 360,
-                    y: Math.random() * 360,
-                    z: Math.random() * 360
-                });
-                box.setAttribute('scale', '0.15 0.15 0.15');  // 15cm box
-                
-                // Random color
-                const colors = ['red', 'blue', 'green', 'yellow', 'purple'];
-                const colorIndex = Math.floor(Math.random() * colors.length);
-                box.setAttribute('color', colors[colorIndex]);
-                
-                // Make it look nicer
-                box.setAttribute('material', 'metalness: 0.7; roughness: 0.3');
-                
-                // Add animation
-                box.setAttribute('animation', {
-                    property: 'rotation',
-                    to: { x: Math.random() * 360, y: Math.random() * 360, z: Math.random() * 360 },
-                    dur: 5000,
-                    loop: true,
-                    easing: 'linear'
-                });
-                
-                // Small floating movement
-                box.setAttribute('animation__position', {
-                    property: 'position',
-                    to: `${randomOffset.x + (Math.random() - 0.5) * 0.5} ${randomOffset.y + (Math.random() - 0.5) * 0.5} ${randomOffset.z}`,
-                    dur: 3000,
-                    loop: true,
-                    dir: 'alternate',
-                    easing: 'easeInOutSine'
-                });
-                
-                // Add to scene
-                gameContainer.appendChild(box);
-                
-                // Track the box
-                boxes.push({
-                    id: boxId,
-                    element: box,
-                    position: randomOffset
-                });
-            }
-            
-            function checkCollisions() {
-                if (!gameRunning || boxes.length === 0) return;
-                
-                // In AR.js, the camera is fixed at origin and the world moves around it
-                // So we need to check if any boxes are close to the origin (camera)
-                
-                // Loop through all boxes
-                for (let i = boxes.length - 1; i >= 0; i--) {
-                    const box = boxes[i];
-                    const boxEl = box.element;
-                    
-                    // Get the current world position of the box
-                    const position = boxEl.getAttribute('position');
-                    
-                    // Calculate distance to camera (origin)
-                    const distance = Math.sqrt(
-                        position.x * position.x + 
-                        position.y * position.y + 
-                        position.z * position.z
-                    );
-                    
-                    // If box is close enough to camera, collect it
-                    if (distance < 0.5) { // 50cm collision radius
-                        collectBox(box, i);
-                    }
-                }
-            }
-            
-            function collectBox(box, index) {
-                // Remove box from scene
-                if (box.element.parentNode) {
-                    box.element.parentNode.removeChild(box.element);
-                }
-                
-                // Remove from tracking array
-                boxes.splice(index, 1);
-                
-                // Update score
-                score++;
-                updateUI();
-                
-                // Play sound effect (if needed)
-                playCollectSound();
-            }
-            
-            function playCollectSound() {
-                // Play a sound using Web Audio API
-                // Simple beep sound
-                try {
-                    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                    const oscillator = audioContext.createOscillator();
-                    const gainNode = audioContext.createGain();
-                    
-                    oscillator.type = 'sine';
-                    oscillator.frequency.value = 800; // Higher pitch for collection
-                    
-                    gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
-                    gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.3);
-                    
-                    oscillator.connect(gainNode);
-                    gainNode.connect(audioContext.destination);
-                    
-                    oscillator.start();
-                    oscillator.stop(audioContext.currentTime + 0.3);
-                } catch (e) {
-                    console.log("Audio not supported");
-                }
-            }
-            
-            function updateUI() {
-                scoreDisplay.textContent = `Score: ${score}`;
-                timerDisplay.textContent = `Time: ${timeRemaining}`;
-            }
-            
-            function endGame() {
-                gameRunning = false;
-                
-                // Stop timers
-                clearInterval(gameTimerId);
-                clearInterval(boxSpawnerId);
-                clearInterval(collisionCheckerId);
-                
-                // Update final score and show game over panel
-                finalScoreDisplay.textContent = `Final Score: ${score}`;
-                gameOverPanel.style.display = 'block';
-            }
-            
-            function clearBoxes() {
-                // Remove all existing boxes
-                boxes.forEach(box => {
-                    if (box.element.parentNode) {
-                        box.element.parentNode.removeChild(box.element);
-                    }
-                });
-                boxes = [];
-            }
-        });
-    </script>
 </body>
 </html>
